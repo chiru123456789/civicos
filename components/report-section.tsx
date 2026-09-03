@@ -32,7 +32,6 @@ export function ReportSection() {
   const [fileName, setFileName] = useState<string | undefined>()
   const [imageSignature, setImageSignature] = useState<string | undefined>()
   const [location, setLocation] = useState('')
-  const [description, setDescription] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [analysis, setAnalysis] = useState<IssueAnalysis | null>(null)
   const [civicCase, setCivicCase] = useState<CivicCase | null>(null)
@@ -118,7 +117,6 @@ export function ReportSection() {
       imageSignature,
       location,
       geo,
-      description,
     }
     const result = await analyzeIssue(input)
     setAnalysis(result)
@@ -131,7 +129,6 @@ export function ReportSection() {
     clearImage()
     clearGeo()
     setLocation('')
-    setDescription('')
     setAnalysis(null)
     setCivicCase(null)
     setManualOverride(false)
@@ -143,7 +140,7 @@ export function ReportSection() {
   const canAnalyze =
     status !== 'analyzing' &&
     hasLocation &&
-    (preview || location.trim() || description.trim())
+    Boolean(preview)
 
   const osmBox = geo
     ? `${geo.lng - 0.004}%2C${geo.lat - 0.003}%2C${geo.lng + 0.004}%2C${geo.lat + 0.003}`
@@ -307,23 +304,6 @@ export function ReportSection() {
                     : 'Capture GPS or type a location to submit a report.'}
                 </p>
               )}
-            </div>
-
-            <div className="mt-4 space-y-1.5">
-              <label
-                htmlFor="description"
-                className="text-sm font-medium text-foreground"
-              >
-                Describe the problem
-              </label>
-              <textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={4}
-                placeholder="Large pothole in the middle of the lane, worsens after rain and forces two-wheelers to swerve."
-                className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2.5 text-sm leading-relaxed outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
-              />
             </div>
 
             <div className="mt-5 flex items-center gap-3">

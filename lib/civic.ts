@@ -70,7 +70,6 @@ export type ReportInput = {
   imageSignature?: string
   location: string
   geo?: GeoLocation | null
-  description: string
 }
 
 /** Confidence below this is treated as "needs confirmation". */
@@ -222,10 +221,7 @@ function matchesKeyword(haystack: string, keyword: string) {
 const analysisCache = new Map<string, IssueAnalysis>()
 
 function cacheKey(input: ReportInput) {
-  return [
-    input.imageSignature ?? input.imageName ?? 'no-image',
-    input.description.trim().toLowerCase(),
-  ].join('|')
+  return input.imageSignature ?? input.imageName ?? 'no-image'
 }
 
 /**
@@ -275,7 +271,11 @@ export async function analyzeIssue(input: ReportInput): Promise<IssueAnalysis> {
 
   await delay(900)
 
-  const haystack = `${input.description} ${input.imageName ?? ''}`.toLowerCase()
+  // The vision model infers the issue directly from the uploaded photo. In this
+  // demo we derive it from the image filename; production replaces this with a
+  // Groq vision call that returns the structured analysis (including the
+  // auto-generated description) from the image alone.
+  const haystack = `${input.imageName ?? ''}`.toLowerCase()
 
   // Score each profile by whole-word keyword matches. Word boundaries prevent
   // false positives like "street" matching "tree" via naive substring search.
@@ -375,11 +375,7 @@ export async function createCase(
     ? `${location} (GPS ${formatCoords(geo)}, ±${Math.round(geo.accuracy)}m)`
     : location
 
-  const complaint = `A ${analysis.severity.toLowerCase()}-severity ${analysis.issue.toLowerCase()} has been identified at ${locationSentence}. This ${analysis.category.toLowerCase()} issue poses a risk of ${analysis.risk.toLowerCase()} and requires attention from the ${analysis.responsibleAuthority}. Recommended action: ${analysis.recommendedAction.toLowerCase()}. ${
-    input.description.trim()
-      ? `Citizen note: "${input.description.trim()}"`
-      : 'Immediate inspection is recommended to prevent accidents and further deterioration.'
-  }`
+  const complaint = `A ${analysis.severity.toLowerCase()}-severity ${analysis.issue.toLowerCase()} has been identified at ${locationSentence}. This ${analysis.category.toLowerCase()} issue poses a risk of ${analysis.risk.toLowerCase()} and requires attention from the ${analysis.responsibleAuthority}. Recommended action: ${analysis.recommendedAction.toLowerCase()}. Immediate inspection is recommended to prevent accidents and further deterioration.`
 
   return {
     id: 'BLR-00127',
