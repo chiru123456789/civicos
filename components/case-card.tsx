@@ -1,4 +1,11 @@
-import { Clock3, MapPin, FileText, ArrowUpRight } from 'lucide-react'
+import {
+  Clock3,
+  MapPin,
+  FileText,
+  ArrowUpRight,
+  Navigation,
+  Gauge,
+} from 'lucide-react'
 import type { CivicCase } from '@/lib/civic'
 import { SeverityBadge } from '@/components/severity-badge'
 
@@ -14,15 +21,29 @@ export function CaseCard({ civicCase }: { civicCase: CivicCase }) {
             {civicCase.id}
           </p>
         </div>
-        <span className="inline-flex items-center gap-2 rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-xs font-medium text-warning-foreground">
-          <Clock3 className="size-3.5" />
-          {civicCase.status}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 font-mono text-xs text-muted-foreground">
+            <Gauge className="size-3.5" />
+            {Math.round(civicCase.confidence * 100)}%
+          </span>
+          <span className="inline-flex items-center gap-2 rounded-full border border-warning/30 bg-warning/10 px-3 py-1.5 text-xs font-medium text-warning-foreground">
+            <Clock3 className="size-3.5" />
+            {civicCase.status}
+          </span>
+        </div>
       </div>
 
       <div className="grid gap-px bg-border sm:grid-cols-3">
         <Field icon={MapPin} label="Location" value={civicCase.location} />
-        <Field icon={Clock3} label="Filed" value={civicCase.createdAt} />
+        <Field
+          icon={Navigation}
+          label="GPS coordinates"
+          value={
+            civicCase.geo
+              ? `${civicCase.geo.lat.toFixed(5)}, ${civicCase.geo.lng.toFixed(5)}`
+              : 'Not captured'
+          }
+        />
         <div className="flex flex-col gap-1 bg-card px-6 py-4">
           <span className="flex items-center gap-2 text-xs text-muted-foreground">
             <ArrowUpRight className="size-3.5" />

@@ -9,12 +9,17 @@ import {
   Sparkles,
   X,
   RotateCcw,
+  LocateFixed,
+  CheckCircle2,
 } from 'lucide-react'
 import {
   analyzeIssue,
   createCase,
+  compressImage,
   type CivicCase,
+  type GeoLocation,
   type IssueAnalysis,
+  type ReportInput,
 } from '@/lib/civic'
 import { AnalysisCard } from '@/components/analysis-card'
 import { CaseCard } from '@/components/case-card'
@@ -25,26 +30,82 @@ export function ReportSection() {
   const [status, setStatus] = useState<Status>('idle')
   const [preview, setPreview] = useState<string | null>(null)
   const [fileName, setFileName] = useState<string | undefined>()
+  const [imageSignature, setImageSignature] = useState<string | undefined>()
   const [location, setLocation] = useState('')
   const [description, setDescription] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [analysis, setAnalysis] = useState<IssueAnalysis | null>(null)
   const [civicCase, setCivicCase] = useState<CivicCase | null>(null)
 
+  // GPS state
+  const [geo, setGeo] = useState<GeoLocation | null>(null)
+  const [geoStatus, setGeoStatus] = useState<'idle' | 'locating' | 'error'>(
+    'idle',
+  )
+  const [geoError, setGeoError] = useState<string | null>(null)
+  const [manualOverride, setManualOverride] = useState(false)
+
   const inputRef = useRef<HTMLInputElement>(null)
 
-  function handleFiles(files: FileList | null) {
+  async function handleFiles(files: FileList | null) {
     const file = files?.[0]
     if (!file || !file.type.startsWith('image/')) return
     setFileName(file.name)
-    setPreview(URL.createObjectURL(file))
+    // Compress/resize in-browser for a faster, lighter analysis payload.
+    try {
+      const { dataUrl, signature } = await compressImage(file)
+      setPreview(dataUrl)
+      setImageSignature(signature)
+    } catch {
+      setPreview(URL.createObjectURL(file))
+      setImageSignature(`${file.name}:${file.size}`)
+    }
   }
 
   function clearImage() {
-    if (preview) URL.revokeObjectURL(preview)
+    if (preview?.startsWith('blob:')) URL.revokeObjectURL(preview)
     setPreview(null)
     setFileName(undefined)
+    setImageSignature(undefined)
     if (inputRef.current) inputRef.current.value = ''
+  }
+
+  function useCurrentLocation() {
+    if (!('geolocation' in navigator)) {
+      setGeoStatus('error')
+      setGeoError('Geolocation is not supported on this device.')
+      return
+    }
+    setGeoStatus('locating')
+    setGeoError(null)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGeo({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+          timestamp: pos.timestamp,
+        })
+        setGeoStatus('idle')
+        setManualOverride(false)
+      },
+      (err) => {
+        setGeoStatus('error')
+        setGeoError(
+          err.code === err.PERMISSION_DENIED
+            ? 'Location permission denied. Enter the location manually below.'
+            : 'Could not get your location. Enter it manually below.',
+        )
+        setManualOverride(true)
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    )
+  }
+
+  function clearGeo() {
+    setGeo(null)
+    setGeoStatus('idle')
+    setGeoError(null)
   }
 
   async function handleAnalyze() {
@@ -52,7 +113,13 @@ export function ReportSection() {
     setAnalysis(null)
     setCivicCase(null)
 
-    const input = { imageName: fileName, location, description }
+    const input: ReportInput = {
+      imageName: fileName,
+      imageSignature,
+      location,
+      geo,
+      description,
+    }
     const result = await analyzeIssue(input)
     setAnalysis(result)
     const generated = await createCase(input, result)
@@ -62,15 +129,25 @@ export function ReportSection() {
 
   function resetAll() {
     clearImage()
+    clearGeo()
     setLocation('')
     setDescription('')
     setAnalysis(null)
     setCivicCase(null)
+    setManualOverride(false)
     setStatus('idle')
   }
 
+  // A location is required: either GPS is captured or a manual label is typed.
+  const hasLocation = Boolean(geo) || location.trim().length > 0
   const canAnalyze =
-    status !== 'analyzing' && (preview || location.trim() || description.trim())
+    status !== 'analyzing' &&
+    hasLocation &&
+    (preview || location.trim() || description.trim())
+
+  const osmBox = geo
+    ? `${geo.lng - 0.004}%2C${geo.lat - 0.003}%2C${geo.lng + 0.004}%2C${geo.lat + 0.003}`
+    : null
 
   return (
     <section id="report" className="scroll-mt-20 bg-secondary/40 py-20">
@@ -80,8 +157,8 @@ export function ReportSection() {
             Report a Civic Issue
           </h2>
           <p className="mt-3 text-pretty leading-relaxed text-muted-foreground">
-            Upload a photo, add the location, and let CivicOS turn it into a
-            structured case. No sign-in required.
+            Upload a photo, capture your GPS location, and let CivicOS turn it
+            into a structured case. No sign-in required.
           </p>
         </div>
 
@@ -110,7 +187,7 @@ export function ReportSection() {
                 <div className="w-full">
                   <div className="relative mx-auto aspect-video w-full overflow-hidden rounded-lg border border-border">
                     <Image
-                      src={preview}
+                      src={preview || '/placeholder.svg'}
                       alt="Uploaded civic issue preview"
                       fill
                       className="object-cover"
@@ -141,7 +218,7 @@ export function ReportSection() {
                     Drag &amp; drop a photo here
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    or click to browse · PNG, JPG up to 10MB
+                    or click to browse · compressed automatically for speed
                   </p>
                 </>
               )}
@@ -155,23 +232,81 @@ export function ReportSection() {
               />
             </label>
 
-            <div className="mt-5 space-y-1.5">
-              <label
-                htmlFor="location"
-                className="text-sm font-medium text-foreground"
-              >
-                Location
-              </label>
+            {/* GPS location */}
+            <div className="mt-5 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-foreground">
+                  Location
+                </span>
+                <button
+                  type="button"
+                  onClick={useCurrentLocation}
+                  disabled={geoStatus === 'locating'}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-60"
+                >
+                  {geoStatus === 'locating' ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <LocateFixed className="size-3.5 text-primary" />
+                  )}
+                  Use current location
+                </button>
+              </div>
+
+              {geo && (
+                <div className="animate-in fade-in overflow-hidden rounded-xl border border-border">
+                  {osmBox && (
+                    <iframe
+                      title="Location preview"
+                      className="h-36 w-full border-0"
+                      loading="lazy"
+                      src={`https://www.openstreetmap.org/export/embed.html?bbox=${osmBox}&layer=mapnik&marker=${geo.lat}%2C${geo.lng}`}
+                    />
+                  )}
+                  <div className="flex items-center justify-between gap-3 bg-primary/[0.04] px-3 py-2">
+                    <span className="inline-flex items-center gap-1.5 font-mono text-xs text-foreground">
+                      <CheckCircle2 className="size-3.5 text-primary" />
+                      {geo.lat.toFixed(5)}, {geo.lng.toFixed(5)}
+                      <span className="text-muted-foreground">
+                        · ±{Math.round(geo.accuracy)}m
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={clearGeo}
+                      className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {geoError && (
+                <p className="text-xs text-destructive">{geoError}</p>
+              )}
+
               <div className="relative">
                 <MapPin className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <input
                   id="location"
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
-                  placeholder="e.g. 100 Feet Road, Indiranagar, Bengaluru"
+                  placeholder={
+                    geo
+                      ? 'Add a landmark or adjust the address (optional)'
+                      : 'e.g. 100 Feet Road, Indiranagar, Bengaluru'
+                  }
                   className="h-11 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/20"
                 />
               </div>
+              {!hasLocation && (
+                <p className="text-xs text-muted-foreground">
+                  {manualOverride
+                    ? 'Enter the location manually to continue.'
+                    : 'Capture GPS or type a location to submit a report.'}
+                </p>
+              )}
             </div>
 
             <div className="mt-4 space-y-1.5">
@@ -229,7 +364,12 @@ export function ReportSection() {
 
             {status === 'analyzing' && <AnalyzingState />}
 
-            {analysis && <AnalysisCard analysis={analysis} />}
+            {analysis && (
+              <AnalysisCard
+                analysis={analysis}
+                onConfirm={(updated) => setAnalysis(updated)}
+              />
+            )}
             {civicCase && <CaseCard civicCase={civicCase} />}
           </div>
         </div>
@@ -255,9 +395,9 @@ function IdleState() {
 
 function AnalyzingState() {
   const lines = [
-    'Reading image and context…',
+    'Compressing image for fast upload…',
     'Classifying issue category…',
-    'Assessing severity and risk…',
+    'Assessing severity and confidence…',
     'Drafting civic case…',
   ]
   return (
@@ -271,7 +411,7 @@ function AnalyzingState() {
           <div
             key={line}
             className="flex items-center gap-3 animate-in fade-in slide-in-from-left-2"
-            style={{ animationDelay: `${i * 400}ms`, animationFillMode: 'both' }}
+            style={{ animationDelay: `${i * 300}ms`, animationFillMode: 'both' }}
           >
             <span className="size-1.5 rounded-full bg-primary/60" />
             <span className="text-sm text-muted-foreground">{line}</span>
