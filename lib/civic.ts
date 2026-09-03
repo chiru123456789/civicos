@@ -70,6 +70,8 @@ export type ReportInput = {
   imageSignature?: string
   location: string
   geo?: GeoLocation | null
+  /** Optional speech-to-text transcript the citizen spoke aloud. */
+  voiceTranscript?: string
 }
 
 /** Confidence below this is treated as "needs confirmation". */
@@ -221,7 +223,9 @@ function matchesKeyword(haystack: string, keyword: string) {
 const analysisCache = new Map<string, IssueAnalysis>()
 
 function cacheKey(input: ReportInput) {
-  return input.imageSignature ?? input.imageName ?? 'no-image'
+  const base = input.imageSignature ?? input.imageName ?? 'no-image'
+  const voice = input.voiceTranscript?.trim().toLowerCase() ?? ''
+  return voice ? `${base}::voice:${voice}` : base
 }
 
 /**
